@@ -22,16 +22,10 @@ that you start from the Codespaces' terminal (like `rviz`) will open in the remo
 ### Initial environment preparation
 
 Your environment (called a *devcontainer*) is based on [ROS
-noetic](http://wiki.ros.org/noetic). It already contains almost all the standard
-ROS tools that we need. Let's add a couple of additional packages required for
-this tutorial:
+noetic](http://wiki.ros.org/noetic) with [some additional
+tools](.devcontainer/Dockerfile). It is ready to use for our tutorial.
 
-```
-sudo apt update
-sudo apt install evince python3-graphviz wget python3-pip python3-catkin-tools
-```
-
-Next, we create a basic ROS *workspace*, so that we can compile ROS nodes:
+Let's simply create a basic ROS *workspace*, so that we can compile ROS nodes:
 
 ```
 mkdir -p ws/src
@@ -39,7 +33,6 @@ cd ws
 catkin init
 catkin config --install
 cd ..
-rosdep update
 ```
 
 ## Playing ROS 'bags'
@@ -56,8 +49,8 @@ In the same terminal, source your ROS environment:
 source /opt/ros/noetic
 ```
 
-**Note: each time you open a new terminal, you first need to source your ROS
-environment with this command.**
+> 💡 each time you open a new terminal, you first need to source your ROS
+>  environment with this command.
 
 Then, start `roscore`
 
@@ -69,6 +62,12 @@ roscore
 
 I have prepared some bags for today's tutorial. Download them with `wget`:
 
+First, open a new terminal by clicking on the `+` at the right of the terminal
+panel.
+
+> 💡 you can rename your terminals by right-clicking on them. For instance,
+> name the first one `roscore` and the second one `bags`.
+
 ```
 cd bags
 wget https://skadge.org/data/severin-head.bag
@@ -76,9 +75,19 @@ wget https://skadge.org/data/severin-sitting-table.bag
 cd ..
 ```
 
+> 💡 if you are running this tutorial on your computer directly (ie, not in a
+> devcontainer, you can use your webcam directly (instead of the bags file):
+> 
+> First install `usb_cam`: `apt install ros-noetic-usb-cam`
+> Then, start it, **with the provided calibration file** (or your own, if you
+> have a calibrated camera):
+>
+> ```
+> rosrun usb_cam usb_cam_node _camera_info_url:="file:///`pwd`/default_webcam_calibration.yml"
+> ```
+
 ### Display the content of the bag file
 
-Open a new terminal by clicking on the `+` at the right of the termnial panel.
 
 Source the ROS environment, and play the pre-recorded bag file:
 
@@ -136,18 +145,16 @@ git clone https://github.com/ros4hri/hri_face_detect.git
 cd ..
 ```
 
-Then, let's install the dependencies:
-
-```
-pip3 install mediapipe
-rosdep install -r -y --from-paths src
-```
-
-Finally, build it:
+Then, build it:
 
 ```
 catkin build hri_face_detect
 ```
+
+> 💡 all the dependencies are already included in your container, so the
+> build step should work straight away. Otherwise, you would have had to install
+> manually `mediapipe` (`pip3 install mediapipe`) and all the other ROS
+> dependencies (`rosdep install -r -y --from-paths src`).
 
 ### Start the face detection node
 
@@ -213,18 +220,15 @@ git clone https://github.com/ros4hri/hri_fullbody.git
 cd ..
 ```
 
-Then, let's install the dependencies:
 
-```
-pip3 install ikpy
-rosdep install -r -y --from-paths src
-```
-
-Finally, build it:
+Then, build it:
 
 ```
 catkin build hri_fullbody
 ```
+
+> 💡 again, all the dependencies are already installed. To do it manually: `pip3
+> install mediapipe ikpy` followed by `rosdep install -r -y --from-paths src`.
 
 ### Start the body detection
 
@@ -246,7 +250,7 @@ source install/setup.bash
 Start the body detector:
 
 ```
-roslaunch hri_fullbody detect.launch rgb_camera:=usb_cam
+roslaunch hri_fullbody hri_fullbody.launch rgb_camera:=usb_cam
 ```
 
 Re-open the browser tab with `rviz`: you should now see the skeleton being
@@ -271,13 +275,20 @@ reappears later); the body detector is doing the same thing for bodies.
 Next, we are going to run a node dedicated to managing full *persons*. Persons
 are also assigned an identifier, but the person identifier is meant to be permanent.
 
-Let install `hri_person_manager`:
+First, to avoid generating too many new people, we are going to only publish the
+few same frames from the video. Switch back to your `rosbag` terminal. Stop the
+current bag (Ctrl+C), and run:
+
+```
+rosbag play --loop --clock -s 3 -u 1 severin-sitting-table.bag
+```
+
+Then, open a new terminal and install `hri_person_manager`:
 
 ```
 cd ws/src
 git clone https://github.com/ros4hri/hri_person_manager.git
 cd ..
-rosdep install -r -y --from-paths src
 catkin build hri_person_manager
 ```
 
@@ -295,12 +306,50 @@ rosrun hri_person_manager hri_person_manager
 If the face and body detector are still running, you might see that
 `hri_person_manager` is already creating some *anonymous* persons: the node
 knows that some persons must exist (since faces and bodies are detected), but it
-does not know *who* these persons are.
+does not know *who* these persons are (you can ignore the warning regarding TF
+frames: they come from the use of bag files instead of real 'live' data).
 
-For that, we need a node able to match for instance a *face* to a unique and
+To get 'real' people, we need a node able to match for instance a *face* to a unique and
 stable *person*: a face identification node.
 
-### 'Manual' face identification
+### Display the person feature graph
+
+We can use a small utility tool to display what the person manager understand of
+the current situation.
+
+Open a new terminal and run:
+
+```
+source /opt/ros/noetic/setup.bash
+cd ws/src/hri_person_manager/scripts/
+./show_humans_graph.py & evince /tmp/graph.pdf
+```
+
+You should see a graph similar to:
+
+![ROS4HRI graph](images/ros4hri-graph.png)
+
+### Connecting the person feature graph
+
+First, let's manually tell `hri_person_manager` that the face and body are
+indeed parts of the same person. TO do so, we need to publish a *match* between
+the two ids (in this example, `rlkas` (the face) and `mnavu` (the body), but
+your IDs might be different, as they are randomly chosen)
+
+In a new terminal (with ROS sourced):
+
+```
+rostopic pub /humans/candidate_matches hri_msgs/IdsMatch "{id1: 'rlkas', id1_type: 2, id2: 'mnavu', id2_type: 3, confidenc
+e: 0.9}"
+```
+
+> ⚠️  do not forget to change the face and body IDs to match the ones in your system!
+
+> 💡 the values `2` and `3` correspond respectively to a face and a body. See
+> [hri_msgs/IdsMatch](https://github.com/ros4hri/hri_msgs/blob/master/msg/IdsMatch.msg)
+> for the list of constants.
+
+
 
 Before doing it automatically with a dedicated node, let's do it manually, to
 understand how this work.

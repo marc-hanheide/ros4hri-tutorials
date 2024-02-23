@@ -4,6 +4,7 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     python3-catkin-tools \
     ros-noetic-hri-rviz \
+    evince \
     wget
 
 # preinstall rosdeps extracted from source via 
@@ -33,9 +34,4 @@ RUN apt-get update && apt-get install -y \
 
 RUN rosdep update
 
-RUN pip3 install mediapipe ikpy
-
-
-
-
-
+RUN pip3 install mediapipe ikpy graphviz
